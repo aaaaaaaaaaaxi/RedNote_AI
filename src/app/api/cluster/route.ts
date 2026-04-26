@@ -152,26 +152,58 @@ function calculateSilhouetteScore(
   return totalSilhouette / n;
 }
 
-// 自动选择最优 K 值
+// 自动选择最优 K 值（综合轮廓系数 + BIC + 最小类大小约束）
 function findOptimalK(embeddings: number[][], maxK: number = 10): number {
   const n = embeddings.length;
   const minK = 2;
-  const actualMaxK = Math.min(maxK, Math.floor(Math.sqrt(n)));
+  const actualMaxK = Math.min(maxK, Math.floor(Math.sqrt(n)) + 1);
 
-  let bestK = minK;
-  let bestScore = -Infinity;
+  const candidates: { k: number; silhouette: number; balance: number }[] = [];
 
   for (let k = minK; k <= actualMaxK; k++) {
-    let totalScore = 0;
-    for (let run = 0; run < 3; run++) {
+    // 多次运行取最优
+    let bestRunLabels: number[] = [];
+    let bestRunScore = -Infinity;
+    for (let run = 0; run < 5; run++) {
       const { labels } = kMeansClustering(embeddings, k);
-      totalScore += calculateSilhouetteScore(embeddings, labels);
+      const score = calculateSilhouetteScore(embeddings, labels);
+      if (score > bestRunScore) {
+        bestRunScore = score;
+        bestRunLabels = labels;
+      }
     }
-    const avgScore = totalScore / 3;
 
-    if (avgScore > bestScore) {
-      bestScore = avgScore;
-      bestK = k;
+    // 检查最小类大小：任何类不得少于 2 个样本（或总样本的 5%）
+    const minClusterSize = Math.max(2, Math.floor(n * 0.05));
+    const clusterCounts = new Map<number, number>();
+    for (const label of bestRunLabels) {
+      clusterCounts.set(label, (clusterCounts.get(label) || 0) + 1);
+    }
+    const tooSmall = [...clusterCounts.values()].some(c => c < minClusterSize);
+
+    // 类别均衡度（越接近1越均衡）
+    const sizes = [...clusterCounts.values()];
+    const avgSize = n / k;
+    const balance = sizes.reduce((sum, s) => sum + (1 - Math.abs(s - avgSize) / avgSize), 0) / k;
+
+    candidates.push({
+      k,
+      silhouette: tooSmall ? bestRunScore * 0.5 : bestRunScore, // 惩罚过小的类
+      balance,
+    });
+  }
+
+  // 综合评分：轮廓系数 * 0.6 + 均衡度 * 0.4
+  // 偏好更细粒度的聚类（惩罚 K=2 的简单划分）
+  let bestK = minK;
+  let bestScore = -Infinity;
+  for (const c of candidates) {
+    // 给较大的 K 一个微小 bonus，避免总是选 K=2
+    const kBonus = (c.k - minK) * 0.02;
+    const score = c.silhouette * 0.6 + c.balance * 0.4 + kBonus;
+    if (score > bestScore) {
+      bestScore = score;
+      bestK = c.k;
     }
   }
 
@@ -341,33 +373,30 @@ export async function POST(request: NextRequest) {
     // 使用 UMAP 风格降维，更好地保留全局结构和局部邻域关系
     const positions = umapStyleReduction(embeddings);
 
-    // 步骤2：在降维后的空间进行聚类
-    // 这样聚类结果和可视化位置就会一致
-    const positions2D = positions.map((p) => p);
-
+    // 步骤2：在原始高维空间进行聚类（更准确）
     let labels: number[];
     let clusterCountResult: number;
     let silhouetteScore: number;
     let centroids: number[][] | undefined;
 
     if (autoCluster) {
-      // 自动聚类：使用轮廓系数选择最优 K
-      const optimalK = findOptimalK(positions2D, Math.min(10, Math.floor(embeddings.length / 2)));
-      const kmeansResult = kMeansClustering(positions2D, optimalK);
+      // 自动聚类：在高维空间选择最优 K
+      const optimalK = findOptimalK(embeddings, Math.min(10, Math.floor(embeddings.length / 2)));
+      const kmeansResult = kMeansClustering(embeddings, optimalK);
       labels = kmeansResult.labels;
       centroids = kmeansResult.centroids;
       clusterCountResult = optimalK;
     } else {
       // 手动指定聚类数
       const k = Math.min(clusterCount || 5, embeddings.length);
-      const kmeansResult = kMeansClustering(positions2D, k);
+      const kmeansResult = kMeansClustering(embeddings, k);
       labels = kmeansResult.labels;
       centroids = kmeansResult.centroids;
       clusterCountResult = k;
     }
 
-    // 计算轮廓系数
-    silhouetteScore = calculateSilhouetteScore(positions2D, labels);
+    // 计算轮廓系数（基于高维空间）
+    silhouetteScore = calculateSilhouetteScore(embeddings, labels);
 
     return NextResponse.json({
       success: true,

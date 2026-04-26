@@ -66,27 +66,37 @@ async function embedWithTransformers(texts: string[]): Promise<{ embeddings: num
   return { embeddings };
 }
 
-// 使用 coze-coding-dev-sdk
-async function embedWithCoze(texts: string[]): Promise<{ embeddings: number[][]; error?: string }> {
+// 使用阿里百炼 Embedding（每批最多10条）
+async function embedWithDashScope(texts: string[]): Promise<{ embeddings: number[][]; error?: string }> {
   try {
-    const { EmbeddingClient } = await import('coze-coding-dev-sdk');
-    const client = new EmbeddingClient();
-    
+    const OpenAI = (await import('openai')).default;
+    const client = new OpenAI({
+      apiKey: process.env.DASHSCOPE_API_KEY,
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
+
+    const batchSize = 10;
     const embeddings: number[][] = [];
-    for (const text of texts) {
-      const embedding = await client.embedText(text);
-      embeddings.push(embedding);
+
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const batch = texts.slice(i, i + batchSize);
+      const response = await client.embeddings.create({
+        model: 'text-embedding-v3',
+        input: batch,
+      });
+      embeddings.push(...response.data.map((item) => item.embedding));
     }
-    
+
     return { embeddings };
   } catch (e: any) {
-    return { embeddings: [], error: e.message || 'Coze API 调用失败' };
+    console.error('DashScope embedding error:', e);
+    return { embeddings: [], error: e.message || '百炼 API 调用失败' };
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { texts, provider = 'coze' } = await request.json();
+    const { texts, provider = 'dashscope' } = await request.json();
 
     if (!texts || !Array.isArray(texts) || texts.length === 0) {
       return NextResponse.json({ error: 'texts 数组不能为空' }, { status: 400 });
@@ -100,19 +110,19 @@ export async function POST(request: NextRequest) {
     if (provider === 'transformers' || provider === 'bge') {
       // 尝试使用本地 BGE 模型
       const result = await embedWithTransformers(texts);
-      
+
       if (result.error || result.embeddings.length === 0) {
-        // BGE 失败，自动切换到 Coze
-        console.log('BGE failed, falling back to Coze:', result.error);
-        const cozeResult = await embedWithCoze(texts);
-        
-        if (cozeResult.error) {
-          return NextResponse.json({ error: cozeResult.error }, { status: 500 });
+        // BGE 失败，自动切换到百炼
+        console.log('BGE failed, falling back to DashScope:', result.error);
+        const fallbackResult = await embedWithDashScope(texts);
+
+        if (fallbackResult.error) {
+          return NextResponse.json({ error: fallbackResult.error }, { status: 500 });
         }
-        
-        embeddings = cozeResult.embeddings;
-        model = 'doubao-embedding (fallback)';
-        usedProvider = 'coze';
+
+        embeddings = fallbackResult.embeddings;
+        model = 'text-embedding-v3 (fallback)';
+        usedProvider = 'dashscope';
         dimension = embeddings[0]?.length || 1024;
       } else {
         embeddings = result.embeddings;
@@ -120,15 +130,15 @@ export async function POST(request: NextRequest) {
         dimension = embeddings[0]?.length || 512;
       }
     } else {
-      // 使用 coze SDK
-      const result = await embedWithCoze(texts);
-      
+      // 使用百炼 Embedding
+      const result = await embedWithDashScope(texts);
+
       if (result.error) {
         return NextResponse.json({ error: result.error }, { status: 500 });
       }
-      
+
       embeddings = result.embeddings;
-      model = 'doubao-embedding';
+      model = 'text-embedding-v3';
       dimension = embeddings[0]?.length || 1024;
     }
 

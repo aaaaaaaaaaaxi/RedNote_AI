@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import OpenAI from 'openai';
 
 interface PostInsightRequest {
   post1: {
@@ -26,7 +26,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 构建提示词
     const prompt = `你是一位资深的小红书内容创作者和创意策划师。现在有两个看似不相关的帖子：
 
 【帖子1】
@@ -47,23 +46,19 @@ ${post2.content ? `内容：${post2.content}` : ''}
 
 请用中文回答。`;
 
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-    const config = new Config();
-    const client = new LLMClient(config, customHeaders);
+    const client = new OpenAI({
+      apiKey: process.env.DASHSCOPE_API_KEY,
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
 
-    const messages = [
-      {
-        role: 'system' as const,
-        content: '你是一个充满创意的小红书博主，擅长跨界联想和创意灵感生成。你的回复应该活泼有趣，适合小红书的语境。',
-      },
-      {
-        role: 'user' as const,
-        content: prompt,
-      },
-    ];
-
-    const stream = client.stream(messages, {
+    const stream = await client.chat.completions.create({
+      model: process.env.DASHSCOPE_MODEL || 'qwen-plus-latest',
       temperature: 0.9,
+      messages: [
+        { role: 'system', content: '你是一个充满创意的小红书博主，擅长跨界联想和创意灵感生成。你的回复应该活泼有趣，适合小红书的语境。' },
+        { role: 'user', content: prompt },
+      ],
+      stream: true,
     });
 
     // 流式返回
@@ -72,12 +67,13 @@ ${post2.content ? `内容：${post2.content}` : ''}
       async start(controller) {
         try {
           for await (const chunk of stream) {
-            if (chunk.content) {
-              const text = chunk.content.toString();
+            const text = chunk.choices[0]?.delta?.content || '';
+            if (text) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`));
             }
           }
         } finally {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         }
       },

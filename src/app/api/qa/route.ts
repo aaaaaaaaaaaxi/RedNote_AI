@@ -1,41 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LLMClient, Config } from 'coze-coding-dev-sdk';
-import { EmbeddingClient } from 'coze-coding-dev-sdk';
+import OpenAI from 'openai';
 
 // 计算余弦相似度
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
-  
+
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
-  
+
   for (let i = 0; i < a.length; i++) {
     dotProduct += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
-  
+
   if (normA === 0 || normB === 0) return 0;
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-// 向量化文本
+// 向量化文本（使用百炼 Embedding）
 async function embedTexts(texts: string[]): Promise<number[][]> {
-  const client = new EmbeddingClient();
+  const client = new OpenAI({
+    apiKey: process.env.DASHSCOPE_API_KEY,
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  });
+
+  const batchSize = 10;
   const embeddings: number[][] = [];
-  
-  for (const text of texts) {
-    try {
-      const embedding = await client.embedText(text);
-      embeddings.push(embedding);
-    } catch (e) {
-      console.error('Embedding error:', e);
-      // 返回零向量作为占位
-      embeddings.push(new Array(1024).fill(0));
-    }
+
+  for (let i = 0; i < texts.length; i += batchSize) {
+    const batch = texts.slice(i, i + batchSize);
+    const response = await client.embeddings.create({
+      model: 'text-embedding-v3',
+      input: batch,
+    });
+    embeddings.push(...response.data.map((item) => item.embedding));
   }
-  
+
   return embeddings;
 }
 
@@ -62,7 +64,7 @@ export async function POST(request: NextRequest) {
     const questionEmbedding = await embedTexts([question]);
 
     // 2. 向量化所有收藏内容
-    const itemTexts = items.map((item: { title: string; author?: string; link?: string }) => 
+    const itemTexts = items.map((item: { title: string; author?: string; link?: string }) =>
       `${item.title}${item.author ? ` - @${item.author}` : ''}`
     );
     const itemEmbeddings = await embedTexts(itemTexts);
@@ -81,7 +83,6 @@ export async function POST(request: NextRequest) {
     const references = topResults.map((r) => r.item);
 
     // 5. 构建 prompt
-    const referencesText = formatReferences(references);
     const itemsList = references.map((r, i) => `${i + 1}. ${r.title}${r.author ? ` (作者: ${r.author})` : ''}`).join('\n');
 
     const systemPrompt = `你是一个智能助手，基于用户提供的收藏内容来回答问题。
@@ -107,22 +108,21 @@ ${itemsList}
 请基于以上收藏内容回答问题，并标注引用来源。`;
 
     // 6. 调用 LLM 生成回答
-    const config = new Config();
-    const client = new LLMClient(config);
+    const openai = new OpenAI({
+      apiKey: process.env.DASHSCOPE_API_KEY,
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
 
-    const messages: { role: 'system' | 'user'; content: string }[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ];
+    const response = await openai.chat.completions.create({
+      model: process.env.DASHSCOPE_MODEL || 'qwen-plus-latest',
+      temperature: 0.7,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    });
 
-    let answer = '';
-    const stream = client.stream(messages, { temperature: 0.7 });
-
-    for await (const chunk of stream) {
-      if (chunk.content) {
-        answer += chunk.content.toString();
-      }
-    }
+    const answer = response.choices[0]?.message?.content || '';
 
     return NextResponse.json({
       answer,

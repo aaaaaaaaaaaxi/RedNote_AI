@@ -31,6 +31,8 @@ import {
   Wand2,
   X,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   MessageCircleQuestion,
   ExternalLink,
 } from 'lucide-react';
@@ -207,9 +209,10 @@ export default function HomePage() {
   // 数据状态
   const [inputText, setInputText] = useState('');
   const [jsonInput, setJsonInput] = useState('');
+  const [jsonExpanded, setJsonExpanded] = useState(false);
   const [clusterCount, setClusterCount] = useState(5);
   const [autoCluster, setAutoCluster] = useState(true);
-  const [embeddingProvider, setEmbeddingProvider] = useState<'coze' | 'bge'>('bge');
+  const [embeddingProvider, setEmbeddingProvider] = useState<'dashscope' | 'bge'>('dashscope');
   const [results, setResults] = useState<ClusterResult[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<number | null>(null);
   const [hoveredNode, setHoveredNode] = useState<ClusterResult | null>(null);
@@ -363,10 +366,24 @@ export default function HomePage() {
 
   // 解析 CSV 文件
   const parseCSV = useCallback((csvText: string): PostItem[] => {
-    const lines = csvText.split('\n').filter((line) => line.trim());
-    if (lines.length < 2) return [];
+    // 正确的 CSV 行分割：支持字段内换行
+    const csvLines: string[] = [];
+    let currentLine = '';
+    let quoteCount = 0;
+    for (const ch of csvText) {
+      if (ch === '"') quoteCount++;
+      if (ch === '\n' && quoteCount % 2 === 0) {
+        csvLines.push(currentLine);
+        currentLine = '';
+      } else {
+        currentLine += ch;
+      }
+    }
+    if (currentLine.trim()) csvLines.push(currentLine);
 
-    const headers = lines[0].split(',').map((h) => h.replace(/"/g, '').trim());
+    if (csvLines.length < 2) return [];
+
+    const headers = csvLines[0].split(',').map((h) => h.replace(/"/g, '').trim());
 
     const titleIndex = headers.findIndex((h) => h === '标题');
     const idIndex = headers.findIndex((h) => h === '笔记ID');
@@ -379,8 +396,8 @@ export default function HomePage() {
 
     const posts: PostItem[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
-      let line = lines[i];
+    for (let i = 1; i < csvLines.length; i++) {
+      let line = csvLines[i];
       const values: string[] = [];
       let currentValue = '';
       let inQuotes = false;
@@ -782,10 +799,37 @@ export default function HomePage() {
                       <TabsContent value="json">
                         <Textarea
                           placeholder="JSON 数据..."
-                          value={jsonInput}
+                          value={jsonExpanded ? jsonInput : (() => {
+                            try {
+                              const data = JSON.parse(jsonInput);
+                              if (Array.isArray(data) && data.length > 5) {
+                                return JSON.stringify(data.slice(0, 5), null, 2) + `\n\n... 共 ${data.length} 条，点击下方展开查看全部`;
+                              }
+                            } catch {}
+                            return jsonInput;
+                          })()}
                           onChange={(e) => setJsonInput(e.target.value)}
                           className="min-h-[120px] resize-none bg-white/5 border-white/10 text-white placeholder:text-white/30 font-mono text-xs"
+                          readOnly={!jsonExpanded}
                         />
+                        {(() => {
+                          try {
+                            const data = JSON.parse(jsonInput);
+                            if (Array.isArray(data) && data.length > 5) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setJsonExpanded(!jsonExpanded)}
+                                  className="mt-2 flex items-center gap-1 text-xs text-white/50 hover:text-white/80 transition-colors"
+                                >
+                                  {jsonExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                  {jsonExpanded ? '收起' : `展开全部 ${data.length} 条`}
+                                </button>
+                              );
+                            }
+                          } catch {}
+                          return null;
+                        })()}
                       </TabsContent>
                       <TabsContent value="text">
                         <Textarea
@@ -805,17 +849,17 @@ export default function HomePage() {
                         </Label>
                         <Select
                           value={embeddingProvider}
-                          onValueChange={(v) => setEmbeddingProvider(v as 'coze' | 'bge')}
+                          onValueChange={(v) => setEmbeddingProvider(v as 'dashscope' | 'bge')}
                         >
                           <SelectTrigger className="w-36 h-7 bg-white/5 border-white/10 text-white text-xs">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent className="bg-black border-white/10">
+                            <SelectItem value="dashscope" className="text-white text-xs">
+                              百炼 Embedding
+                            </SelectItem>
                             <SelectItem value="bge" className="text-white text-xs">
                               BGE-small-zh
-                            </SelectItem>
-                            <SelectItem value="coze" className="text-white text-xs">
-                              Coze Embedding
                             </SelectItem>
                           </SelectContent>
                         </Select>
@@ -907,7 +951,7 @@ export default function HomePage() {
                     />
                     <StatCard
                       title="向量化模型"
-                      value={embeddingProvider === 'bge' ? 'BGE' : 'Coze'}
+                      value={embeddingProvider === 'bge' ? 'BGE' : '百炼'}
                       detail="中文优化"
                     />
                   </div>
