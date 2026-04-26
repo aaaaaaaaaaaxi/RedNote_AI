@@ -1,0 +1,340 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  LayoutDashboard, 
+  Network, 
+  Sparkles, 
+  Upload, 
+  Settings, 
+  PieChart, 
+  Search, 
+  Plus, 
+  Zap, 
+  ArrowRightLeft,
+  ChevronRight,
+  Info,
+  AlertCircle,
+  FileText,
+  CheckCircle2,
+  Loader2
+} from 'lucide-react';
+
+// --- Gemini API 配置 ---
+const apiKey = ""; 
+const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
+
+async function fetchGemini(prompt, systemInstruction = "") {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
+  };
+  let delay = 1000;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text;
+    } catch (error) {
+      if (i === 4) throw error;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay *= 2;
+    }
+  }
+}
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [hasData, setHasData] = useState(false); // 控制是否已上传数据
+  const [isUploading, setIsUploading] = useState(false);
+  const [clusters, setClusters] = useState([]);
+  const [selectedClusters, setSelectedClusters] = useState([]);
+  const [isGeneratingIdea, setIsGeneratingIdea] = useState(false);
+  const [aiIdea, setAiIdea] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const fileInputRef = useRef(null);
+
+  // 模拟文件上传过程
+  const handleFileUpload = () => {
+    setIsUploading(true);
+    // 模拟解析和向量化过程
+    setTimeout(() => {
+      setClusters([
+        { id: 1, name: '家居美学', color: '#FF6B6B', count: 42, tags: ['极简', '奶油风', '宜家改装'], summary: '侧重于现代简约室内设计与软装搭配。' },
+        { id: 2, name: 'AI 工具', color: '#4DABF7', count: 28, tags: ['Midjourney', 'Prompt', '效率'], summary: '涵盖最新的生成式AI工具使用技巧。' },
+        { id: 3, name: '穿搭灵感', color: '#51CF66', count: 35, tags: ['OOTD', '美式复古', '胶囊衣橱'], summary: '日常穿戴方案与特定风格的审美。' },
+        { id: 4, name: '烹饪教学', color: '#FCC419', count: 19, tags: ['减脂餐', '空气炸锅', '一人食'], summary: '快速、健康的家庭料理方案。' },
+      ]);
+      setHasData(true);
+      setIsUploading(false);
+      setActiveTab('dashboard');
+    }, 2000);
+  };
+
+  const generateAIInsight = async () => {
+    if (selectedClusters.length !== 2) return;
+    setIsGeneratingIdea(true);
+    setErrorMsg("");
+    const prompt = `我有两个小红书收藏夹聚类：1. "${selectedClusters[0].name}" 2. "${selectedClusters[1].name}"。请给出一个独特的跨界联想创意方案。要求：150字以内，活泼的小红书语境。`;
+    try {
+      const result = await fetchGemini(prompt, "你是一个充满创意的小红书博主。");
+      setAiIdea(result);
+    } catch (err) {
+      setErrorMsg("联想失败，请重试。");
+    } finally {
+      setIsGeneratingIdea(false);
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-[#0f0f12] text-slate-200 font-sans overflow-hidden text-[14px]">
+      {/* 侧边导航栏 */}
+      <aside className="w-20 border-r border-white/10 flex flex-col items-center py-8 gap-8 bg-[#0f0f12] z-20">
+        <div className="w-12 h-12 bg-red-500 rounded-2xl flex items-center justify-center shadow-lg shadow-red-500/20">
+          <Sparkles className="text-white" size={24} />
+        </div>
+        <nav className="flex flex-col gap-6">
+          <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={22}/>} label="总览" />
+          <NavItem active={activeTab === 'graph'} disabled={!hasData} onClick={() => hasData && setActiveTab('graph')} icon={<Network size={22}/>} label="图谱" />
+          <NavItem active={activeTab === 'ai'} disabled={!hasData} onClick={() => hasData && setActiveTab('ai')} icon={<Zap size={22}/>} label="联想" />
+        </nav>
+        <div className="mt-auto">
+          <NavItem icon={<Settings size={22}/>} label="设置" />
+        </div>
+      </aside>
+
+      {/* 主内容区 */}
+      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* 顶部栏 */}
+        <header className="h-16 border-b border-white/10 flex items-center justify-between px-8 bg-[#0f0f12]/50 backdrop-blur-md z-10">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
+              {!hasData ? '欢迎使用 RedNote AI' : activeTab === 'dashboard' ? '数据洞察中心' : activeTab === 'graph' ? '知识图谱交互' : 'AI 跨界联想'}
+            </h1>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {hasData && (
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-sm"
+              >
+                <Upload size={14} />
+                <span>更新数据</span>
+              </button>
+            )}
+            <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleFileUpload} />
+          </div>
+        </header>
+
+        {/* 核心内容展示 */}
+        <div className="flex-1 p-8 overflow-y-auto custom-scrollbar">
+          {!hasData ? (
+            /* 强调上传的核心起始页 */
+            <div className="h-full flex flex-col items-center justify-center max-w-4xl mx-auto text-center">
+              <div className="relative mb-12 group">
+                <div className="absolute -inset-4 bg-red-500/20 rounded-[40px] blur-3xl group-hover:bg-red-500/30 transition-all duration-500"></div>
+                <div 
+                  onClick={() => !isUploading && fileInputRef.current?.click()}
+                  className="relative w-72 h-72 bg-gradient-to-b from-white/[0.08] to-transparent border border-white/10 rounded-[40px] flex flex-col items-center justify-center cursor-pointer hover:border-red-500/50 hover:scale-[1.02] transition-all group shadow-2xl"
+                >
+                  {isUploading ? (
+                    <div className="flex flex-col items-center gap-4">
+                      <Loader2 className="text-red-500 animate-spin" size={48} />
+                      <div className="text-lg font-medium">正在解析 CSV...</div>
+                      <div className="text-xs text-white/40">向量化提取与降维聚类中</div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <Upload className="text-red-500" size={36} />
+                      </div>
+                      <div className="text-xl font-bold mb-2">上传小红书 CSV</div>
+                      <p className="text-white/40 text-sm px-8">拖拽文件到此处或点击浏览<br/>支持从“设置-账号-个人信息下载”导出的数据</p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-8 w-full">
+                <FeatureSmall icon={<FileText className="text-blue-400" />} title="标题提取" desc="从收藏夹中自动提取笔记标题" />
+                <FeatureSmall icon={<Network className="text-purple-400" />} title="语义聚类" desc="通过向量化技术进行智能分类" />
+                <FeatureSmall icon={<Zap className="text-yellow-400" />} title="联想提示" desc="Gemini 驱动跨界灵感生成" />
+              </div>
+            </div>
+          ) : (
+            /* 已上传数据后的视图 */
+            <div className="animate-in fade-in duration-700">
+              {activeTab === 'dashboard' && (
+                <div className="max-w-7xl mx-auto space-y-8">
+                  <div className="grid grid-cols-4 gap-6">
+                    <StatCard title="总收藏数" value="124" detail="+12% 本月" />
+                    <StatCard title="聚类数量" value={clusters.length} detail="由 Gemini 赋能" />
+                    <StatCard title="平均置信度" value="0.729" detail="语义匹配度高" />
+                    <StatCard title="AI 灵感库" value="24" detail="已生成方案" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-8">
+                    <div className="col-span-2 bg-white/5 border border-white/10 rounded-3xl p-8 h-80 flex flex-col">
+                      <h3 className="font-semibold mb-6 flex items-center gap-2"><PieChart size={18}/> 语义分布趋势</h3>
+                      <div className="flex-1 flex items-end justify-between px-4 pb-2">
+                        {[65, 45, 80, 50, 90, 35, 70, 55, 60, 40].map((h, i) => (
+                          <div key={i} className="w-10 bg-white/10 rounded-t-lg transition-all hover:bg-red-500/50" style={{height: `${h}%`}}></div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 h-80 overflow-hidden flex flex-col">
+                      <h3 className="font-semibold mb-4 text-sm">✨ 聚类摘要预览</h3>
+                      <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar">
+                        {clusters.map(c => (
+                          <div key={c.id} className="border-l-2 pl-3 py-1 hover:bg-white/5 rounded-r-lg transition-colors cursor-default" style={{borderColor: c.color}}>
+                            <div className="text-xs font-bold">{c.name}</div>
+                            <div className="text-[10px] text-white/40 italic line-clamp-1">{c.summary}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'graph' && (
+                <div className="h-[calc(100vh-160px)] relative bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
+                  <div className="absolute inset-0 opacity-40 pointer-events-none">
+                    {clusters.map((c, i) => (
+                      <div key={c.id} className="absolute rounded-full blur-3xl animate-pulse"
+                        style={{
+                          backgroundColor: c.color,
+                          width: `${c.count * 4}px`, height: `${c.count * 4}px`,
+                          top: `${20 + (i * 18) % 60}%`, left: `${15 + (i * 25) % 70}%`,
+                          opacity: 0.2, animationDelay: `${i * 0.5}s`
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="absolute top-6 left-6 p-4 bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 w-64">
+                    <h4 className="text-sm font-bold mb-2 flex items-center gap-2"><Info size={14}/> 语义地图</h4>
+                    <p className="text-[10px] text-white/50 leading-relaxed">基于 BGE 模型。节点越近表示标题语义越接近。点击节点可筛选笔记。</p>
+                  </div>
+                  <div className="absolute bottom-6 right-6 flex flex-col gap-2 items-end">
+                    {clusters.map(cluster => (
+                      <div key={cluster.id} className="flex items-center gap-3 px-4 py-2 bg-black/40 backdrop-blur-md border border-white/10 rounded-xl cursor-pointer hover:bg-white/10 transition-all">
+                        <span className="text-xs font-medium">{cluster.name}</span>
+                        <div className="w-3 h-3 rounded-full" style={{backgroundColor: cluster.color}}></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'ai' && (
+                <div className="h-full flex flex-col max-w-4xl mx-auto pb-12">
+                   {/* 此处保留原有的 AI 联想实验室逻辑 */}
+                   <div className="text-center mb-10">
+                    <h2 className="text-2xl font-bold mb-2">✨ AI 跨界联想实验室</h2>
+                    <p className="text-white/40 text-sm">选择下方聚类，由 Gemini 寻找跨界联系</p>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-8 mb-10">
+                    <DropZone cluster={selectedClusters[0]} onClear={() => setSelectedClusters(prev => [null, prev[1]])} placeholder="聚类 A" />
+                    <ArrowRightLeft className="text-white/20" />
+                    <DropZone cluster={selectedClusters[1]} onClear={() => setSelectedClusters(prev => [prev[0], null])} placeholder="聚类 B" />
+                  </div>
+
+                  <div className="flex justify-center mb-10">
+                    <button 
+                      disabled={selectedClusters.filter(Boolean).length < 2 || isGeneratingIdea}
+                      onClick={generateAIInsight}
+                      className={`px-10 py-3 rounded-full font-bold flex items-center gap-3 transition-all ${selectedClusters.filter(Boolean).length === 2 ? 'bg-red-500 hover:bg-red-600 shadow-xl shadow-red-500/20' : 'bg-white/5 text-white/20 border border-white/10 cursor-not-allowed'}`}
+                    >
+                      {isGeneratingIdea ? <Loader2 className="animate-spin" size={20}/> : <Sparkles size={20}/>}
+                      {isGeneratingIdea ? 'Gemini 正在联想...' : '开始联想'}
+                    </button>
+                  </div>
+
+                  {aiIdea && (
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 animate-in slide-in-from-bottom-2 duration-500">
+                      <div className="flex items-center gap-2 text-indigo-400 mb-3 text-xs font-bold uppercase"><Zap size={14}/> 联想洞察</div>
+                      <p className="text-sm leading-relaxed text-white/80">{aiIdea}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-10 grid grid-cols-4 gap-4">
+                    {clusters.map(cluster => (
+                      <button 
+                        key={cluster.id}
+                        onClick={() => {
+                          if (selectedClusters.find(c => c?.id === cluster.id)) {
+                            setSelectedClusters(selectedClusters.filter(c => c?.id !== cluster.id));
+                          } else if (selectedClusters.filter(Boolean).length < 2) {
+                            const index = selectedClusters[0] ? 1 : 0;
+                            const newSelected = [...selectedClusters];
+                            newSelected[index] = cluster;
+                            setSelectedClusters(newSelected);
+                          }
+                        }}
+                        className={`p-3 rounded-xl border transition-all text-left ${selectedClusters.find(c => c?.id === cluster.id) ? 'bg-red-500/10 border-red-500/50' : 'bg-white/5 border-white/5 hover:border-white/20'}`}
+                      >
+                        <div className="w-full h-1 rounded-full mb-2" style={{backgroundColor: cluster.color}}></div>
+                        <div className="font-bold text-xs truncate">{cluster.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+};
+
+// 子组件
+const NavItem = ({ icon, label, active, onClick, disabled }) => (
+  <button 
+    onClick={onClick}
+    disabled={disabled}
+    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all relative group ${active ? 'bg-white/10 text-white' : disabled ? 'opacity-20 cursor-not-allowed' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+  >
+    {icon}
+    {!disabled && (
+      <div className="absolute left-14 px-2 py-1 bg-white text-black text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+        {label}
+      </div>
+    )}
+  </button>
+);
+
+const FeatureSmall = ({ icon, title, desc }) => (
+  <div className="flex flex-col items-center p-4">
+    <div className="mb-3">{icon}</div>
+    <div className="text-sm font-bold mb-1">{title}</div>
+    <div className="text-[11px] text-white/30">{desc}</div>
+  </div>
+);
+
+const StatCard = ({ title, value, detail }) => (
+  <div className="bg-white/5 border border-white/10 rounded-3xl p-6">
+    <p className="text-white/40 text-[11px] mb-1">{title}</p>
+    <div className="text-2xl font-bold mb-1">{value}</div>
+    <div className="text-[10px] text-white/30">{detail}</div>
+  </div>
+);
+
+const DropZone = ({ cluster, onClear, placeholder }) => (
+  <div className={`w-48 h-56 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center p-4 text-center transition-all ${cluster ? 'bg-white/10 border-white/30' : 'border-white/10 text-white/20'}`}>
+    {cluster ? (
+      <>
+        <div className="w-12 h-12 rounded-xl mb-3" style={{backgroundColor: cluster.color}}></div>
+        <div className="font-bold text-sm mb-1">{cluster.name}</div>
+        <button onClick={onClear} className="text-[10px] text-red-400 mt-2">移除</button>
+      </>
+    ) : <span>{placeholder}</span>}
+  </div>
+);
+
+export default App;
