@@ -61,6 +61,9 @@ interface PostItem {
   collects?: string;
   publishTime?: string;
   description?: string;
+  comments?: string;
+  shares?: string;
+  topics?: string;
 }
 
 interface ClusterResult {
@@ -219,6 +222,15 @@ export default function HomePage() {
   const [fileName, setFileName] = useState<string>('');
   const [silhouetteScore, setSilhouetteScore] = useState<number | null>(null);
   const [actualClusterCount, setActualClusterCount] = useState<number>(0);
+
+  // 数据输入方式
+  const [inputMethod, setInputMethod] = useState<'upload' | 'scrape'>('upload');
+
+  // 爬取状态
+  const [scrapeUrl, setScrapeUrl] = useState('');
+  const [scrapeCookie, setScrapeCookie] = useState('');
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapedUser, setScrapedUser] = useState<string>('');
   const [clusterNames, setClusterNames] = useState<Record<number, string>>({});
 
   // AI 联想状态
@@ -451,6 +463,46 @@ export default function HomePage() {
     reader.readAsText(file);
   }, [parseCSV]);
 
+  const handleScrape = useCallback(async () => {
+    if (!scrapeUrl.trim()) {
+      setError('请输入小红书用户主页 URL');
+      return;
+    }
+
+    setIsScraping(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profileUrl: scrapeUrl.trim(),
+          cookie: scrapeCookie.trim(),
+          maxNotes: 100,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      if (data.posts && data.posts.length > 0) {
+        setJsonInput(JSON.stringify(data.posts, null, 2));
+        setScrapedUser(data.userNickname || '未知用户');
+        setFileName(`爬取自 ${data.userNickname} 的笔记 (${data.count} 条)`);
+      } else {
+        throw new Error('未找到任何笔记，请确认 URL 是否正确');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '爬取失败');
+    } finally {
+      setIsScraping(false);
+    }
+  }, [scrapeUrl, scrapeCookie]);
+
   const parseInput = useCallback((): PostItem[] => {
     if (jsonInput.trim()) {
       try {
@@ -501,12 +553,17 @@ export default function HomePage() {
     setSilhouetteScore(null);
 
     try {
-      setLoadingMessage('正在向量化标题...');
+      setLoadingMessage('正在向量化内容...');
       const embedResponse = await fetch('/api/embed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          texts: posts.map((p) => p.title),
+          texts: posts.map((p) => {
+            if (!p.title && !p.description) return '';
+            if (!p.title) return p.description || '';
+            if (!p.description) return p.title;
+            return `${p.title}。${p.description}`;
+          }),
           provider: embeddingProvider,
         }),
       });
@@ -752,36 +809,128 @@ export default function HomePage() {
           {!hasData ? (
             /* 上传数据的起始页 */
             <div className="h-full flex flex-col items-center justify-center max-w-4xl mx-auto text-center">
-              <div className="relative mb-12 group">
-                <div className="absolute -inset-4 bg-red-500/20 rounded-[40px] blur-3xl group-hover:bg-red-500/30 transition-all duration-500" />
-                <div
-                  onClick={() => !isUploading && fileInputRef.current?.click()}
-                  className="relative w-72 h-72 bg-gradient-to-b from-white/[0.08] to-transparent border border-white/10 rounded-[40px] flex flex-col items-center justify-center cursor-pointer hover:border-red-500/50 hover:scale-[1.02] transition-all group shadow-2xl"
-                >
-                  {isUploading ? (
-                    <div className="flex flex-col items-center gap-4">
-                      <Loader2 className="text-red-500 animate-spin" size={48} />
-                      <div className="text-lg font-medium">{loadingMessage || '处理中...'}</div>
-                      <div className="text-xs text-white/40">向量化提取与降维聚类中</div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <Upload className="text-red-500" size={36} />
-                      </div>
-                      <div className="text-xl font-bold mb-2">上传小红书 CSV</div>
-                      <p className="text-white/40 text-sm px-8">
-                        拖拽文件到此处或点击浏览
-                        <br />
-                        支持从"设置-账号-个人信息下载"导出的数据
-                      </p>
-                    </>
-                  )}
-                </div>
+              {/* 输入方式切换 Tab */}
+              <div className="mb-8">
+                <Tabs value={inputMethod} onValueChange={(v) => setInputMethod(v as 'upload' | 'scrape')}>
+                  <TabsList className="bg-white/5 h-10 px-1 rounded-xl">
+                    <TabsTrigger
+                      value="upload"
+                      className="data-[state=active]:bg-white/10 rounded-lg px-6 text-sm"
+                    >
+                      <Upload size={16} className="mr-2" />
+                      上传 CSV
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="scrape"
+                      className="data-[state=active]:bg-white/10 rounded-lg px-6 text-sm"
+                    >
+                      <Network size={16} className="mr-2" />
+                      爬取用户
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
               </div>
 
+              {/* 上传 CSV 模式 */}
+              {inputMethod === 'upload' && (
+                <div className="relative mb-12 group">
+                  <div className="absolute -inset-4 bg-red-500/20 rounded-[40px] blur-3xl group-hover:bg-red-500/30 transition-all duration-500" />
+                  <div
+                    onClick={() => !isUploading && fileInputRef.current?.click()}
+                    className="relative w-72 h-72 bg-gradient-to-b from-white/[0.08] to-transparent border border-white/10 rounded-[40px] flex flex-col items-center justify-center cursor-pointer hover:border-red-500/50 hover:scale-[1.02] transition-all group shadow-2xl"
+                  >
+                    {isUploading ? (
+                      <div className="flex flex-col items-center gap-4">
+                        <Loader2 className="text-red-500 animate-spin" size={48} />
+                        <div className="text-lg font-medium">{loadingMessage || '处理中...'}</div>
+                        <div className="text-xs text-white/40">向量化提取与降维聚类中</div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                          <Upload className="text-red-500" size={36} />
+                        </div>
+                        <div className="text-xl font-bold mb-2">上传小红书 CSV</div>
+                        <p className="text-white/40 text-sm px-8">
+                          拖拽文件到此处或点击浏览
+                          <br />
+                          支持从"设置-账号-个人信息下载"导出的数据
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 爬取用户模式 */}
+              {inputMethod === 'scrape' && (
+                <div className="w-full max-w-lg mb-12">
+                  <div className="relative group">
+                    <div className="absolute -inset-4 bg-red-500/20 rounded-[40px] blur-3xl group-hover:bg-red-500/30 transition-all duration-500" />
+                    <div className="relative bg-gradient-to-b from-white/[0.08] to-transparent border border-white/10 rounded-[40px] p-8 shadow-2xl">
+                      <div className="space-y-6">
+                        <div className="text-center mb-6">
+                          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Network className="text-red-500" size={28} />
+                          </div>
+                          <div className="text-lg font-bold">爬取用户笔记</div>
+                          <p className="text-white/40 text-xs mt-2">
+                            需要 Cookie 才能获取笔记列表
+                          </p>
+                        </div>
+
+                        <div className="space-y-4 text-left">
+                          <div>
+                            <Label className="text-white/70 text-xs mb-1 block">用户主页 URL</Label>
+                            <Input
+                              placeholder="https://www.xiaohongshu.com/user/profile/xxx"
+                              value={scrapeUrl}
+                              onChange={(e) => setScrapeUrl(e.target.value)}
+                              className="bg-white/5 border-white/10 text-white text-sm h-10"
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-white/70 text-xs mb-1 block">
+                              Cookie <span className="text-red-400">*必填</span>
+                            </Label>
+                            <Textarea
+                              placeholder="从浏览器开发者工具复制完整 Cookie"
+                              value={scrapeCookie}
+                              onChange={(e) => setScrapeCookie(e.target.value)}
+                              className="bg-white/5 border-white/10 text-white text-xs h-16 resize-none font-mono"
+                            />
+                            <p className="text-white/30 text-[10px] mt-1">
+                              获取方法：登录小红书网页版 → F12 → Application → Cookies → 复制全部 Cookie
+                            </p>
+                          </div>
+
+                          <Button
+                            onClick={handleScrape}
+                            disabled={isScraping}
+                            className="w-full bg-red-500 hover:bg-red-600 text-white h-10"
+                          >
+                            {isScraping ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                爬取中...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="mr-2 h-4 w-4" />
+                                开始爬取
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 文件已选择或手动输入 */}
-              {(fileName || jsonInput || inputText) && !isUploading && (
+              {(fileName || jsonInput || inputText) && !isUploading && !isScraping && (
                 <div className="w-full max-w-lg mb-8 bg-white/5 border border-white/10 rounded-2xl p-6">
                   <div className="space-y-4">
                     {fileName && (
