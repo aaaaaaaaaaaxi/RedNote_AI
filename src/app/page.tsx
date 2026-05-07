@@ -243,6 +243,7 @@ export default function HomePage() {
   const [answer, setAnswer] = useState('');
   const [references, setReferences] = useState<Array<{ title: string; author?: string; link?: string }>>([]);
   const [isAsking, setIsAsking] = useState(false);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
 
   // 帖子联想状态
   const [selectedPosts, setSelectedPosts] = useState<(ClusterResult | null)[]>([null, null]);
@@ -250,8 +251,9 @@ export default function HomePage() {
   const [isGeneratingPostInsight, setIsGeneratingPostInsight] = useState(false);
 
   // 智能问答处理函数
-  const askQuestion = async () => {
-    if (!question.trim() || isAsking) return;
+  const askQuestion = async (q?: string) => {
+    const finalQuestion = q ?? question;
+    if (!finalQuestion.trim() || isAsking) return;
 
     setIsAsking(true);
     setAnswer('');
@@ -262,7 +264,7 @@ export default function HomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: question.trim(),
+          question: finalQuestion.trim(),
           items: results.map((r) => ({
             title: r.title,
             author: r.author,
@@ -287,6 +289,52 @@ export default function HomePage() {
       setIsAsking(false);
     }
   };
+
+  // 生成猜你想问的问题
+  const generateSuggestedQuestions = useCallback(() => {
+    if (results.length === 0) return;
+
+    const questions: string[] = [];
+
+    // 基于聚类生成问题
+    const clusterCount = new Set(results.map((r) => r.cluster)).size;
+    if (clusterCount > 1) {
+      questions.push(`这个收藏夹有哪些分类？`);
+      questions.push(`各分类有什么特点？`);
+    }
+
+    // 基于帖子内容生成通用问题
+    const authors = [...new Set(results.map((r) => r.author).filter(Boolean))];
+
+    // 如果有多个作者
+    if (authors.length > 1) {
+      questions.push(`谁是收藏夹里最活跃的作者？`);
+    }
+
+    // 通用问题
+    questions.push(`给我总结一下这个收藏夹的主题`);
+    questions.push(`有哪些值得推荐的内容？`);
+    questions.push(`最受欢迎的收藏是哪些？`);
+    questions.push(`有没有关于XX的推荐？`);
+
+    // 根据收藏数排序，找出热门内容
+    const topCollected = results
+      .filter((r) => r.collects)
+      .sort((a, b) => {
+        const aNum = parseInt(a.collects || '0');
+        const bNum = parseInt(b.collects || '0');
+        return bNum - aNum;
+      })
+      .slice(0, 3);
+
+    if (topCollected.length > 0 && topCollected[0].title) {
+      questions.push(`关于「${topCollected[0].title.slice(0, 10)}...」的详细内容？`);
+    }
+
+    // 去重并限制数量
+    const uniqueQuestions = [...new Set(questions)].slice(0, 8);
+    setSuggestedQuestions(uniqueQuestions);
+  }, [results]);
 
   // 帖子联想处理函数
   const startPostInsight = async () => {
@@ -502,6 +550,32 @@ export default function HomePage() {
       setIsScraping(false);
     }
   }, [scrapeUrl, scrapeCookie]);
+
+  const loadSampleCSV = useCallback(async (path: string) => {
+    setIsUploading(true);
+    setLoadingMessage('加载示例数据...');
+    setError(null);
+
+    try {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error('加载失败');
+
+      const text = await response.text();
+      const posts = parseCSV(text);
+
+      if (posts.length > 0) {
+        setJsonInput(JSON.stringify(posts, null, 2));
+        setFileName(`示例数据：${path.split('/').pop()}`);
+      } else {
+        throw new Error('解析示例数据失败');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载示例失败');
+    } finally {
+      setIsUploading(false);
+      setLoadingMessage('');
+    }
+  }, [parseCSV]);
 
   const parseInput = useCallback((): PostItem[] => {
     if (jsonInput.trim()) {
@@ -833,6 +907,68 @@ export default function HomePage() {
 
               {/* 上传 CSV 模式 */}
               {inputMethod === 'upload' && (
+                <>
+                {/* 示例 CSV 选择 */}
+                <div className="w-full max-w-3xl mb-8">
+                  <p className="text-white/50 text-sm mb-4">或选择示例数据快速体验</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <button
+                      onClick={() => loadSampleCSV('/samples/collection_sample.csv')}
+                      className="group bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-red-500/40 rounded-2xl p-4 text-left transition-all"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">📚</span>
+                        <span className="text-sm font-medium text-white/90">我的收藏</span>
+                      </div>
+                      <p className="text-xs text-white/40 leading-relaxed">个人小红书收藏夹内容</p>
+                    </button>
+
+                    <button
+                      onClick={() => loadSampleCSV('/samples/xiaoliang.csv')}
+                      className="group bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-red-500/40 rounded-2xl p-4 text-left transition-all"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">🔬</span>
+                        <span className="text-sm font-medium text-white/90">无穷小亮</span>
+                      </div>
+                      <p className="text-xs text-white/40 leading-relaxed">科普生物鉴定，自然观察笔记</p>
+                    </button>
+
+                    <button
+                      onClick={() => loadSampleCSV('/samples/tencent.csv')}
+                      className="group bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-red-500/40 rounded-2xl p-4 text-left transition-all"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">🐧</span>
+                        <span className="text-sm font-medium text-white/90">腾讯招聘</span>
+                      </div>
+                      <p className="text-xs text-white/40 leading-relaxed">校园招聘实习信息，互联网大厂动态</p>
+                    </button>
+
+                    <button
+                      onClick={() => loadSampleCSV('/samples/hkust-gz.csv')}
+                      className="group bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-red-500/40 rounded-2xl p-4 text-left transition-all"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">🎓</span>
+                        <span className="text-sm font-medium text-white/90">港科广</span>
+                      </div>
+                      <p className="text-xs text-white/40 leading-relaxed">香港科技大学（广州）官方内容</p>
+                    </button>
+
+                    <button
+                      onClick={() => loadSampleCSV('/samples/papi_collection.csv')}
+                      className="group bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-red-500/40 rounded-2xl p-4 text-left transition-all"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">🛍️</span>
+                        <span className="text-sm font-medium text-white/90">papi酱</span>
+                      </div>
+                      <p className="text-xs text-white/40 leading-relaxed">papi酱小红书帖子，种草好物分享</p>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="relative mb-12 group">
                   <div className="absolute -inset-4 bg-red-500/20 rounded-[40px] blur-3xl group-hover:bg-red-500/30 transition-all duration-500" />
                   <div
@@ -860,6 +996,7 @@ export default function HomePage() {
                     )}
                   </div>
                 </div>
+                </>
               )}
 
               {/* 爬取用户模式 */}
@@ -1470,6 +1607,48 @@ export default function HomePage() {
                   </div>
 
                   <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full px-8">
+                    {/* 猜你想问 */}
+                    {results.length > 0 && (
+                      <div className="mb-6">
+                        {suggestedQuestions.length === 0 ? (
+                          <button
+                            onClick={generateSuggestedQuestions}
+                            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-red-500/40 rounded-full text-sm text-white/60 hover:text-white transition-all"
+                          >
+                            <Sparkles size={14} className="text-red-400" />
+                            猜你想问 — 点击生成
+                          </button>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2 mb-3">
+                              <Sparkles size={14} className="text-red-400" />
+                              <span className="text-white/60 text-xs">猜你想问</span>
+                              <button
+                                onClick={generateSuggestedQuestions}
+                                className="text-white/30 hover:text-white/60 text-xs transition-colors ml-auto"
+                              >
+                                刷新
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {suggestedQuestions.map((q, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => {
+                                    setQuestion(q);
+                                    askQuestion(q);
+                                  }}
+                                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-red-500/40 rounded-full text-sm text-white/70 hover:text-white transition-all"
+                                >
+                                  {q}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     {/* 问题输入 */}
                     <div className="mb-6">
                       <textarea
@@ -1480,7 +1659,7 @@ export default function HomePage() {
                       />
                       <div className="flex justify-end mt-3">
                         <button
-                          onClick={askQuestion}
+                          onClick={() => askQuestion()}
                           disabled={!question.trim() || isAsking}
                           className={`px-8 py-2.5 rounded-full font-bold flex items-center gap-2 transition-all ${
                             question.trim() && !isAsking

@@ -228,14 +228,20 @@ export default function NetworkGraph({
     // 节点光晕效果
     node
       .append('circle')
-      .attr('r', 18)
+      .attr('r', (d) => {
+        const isHighlighted = selectedCluster !== null && d.cluster === selectedCluster;
+        const isSelected = selectedPosts?.some((p) => p?.id === d.id);
+        if (isSelected) return 24;
+        if (isHighlighted) return 20;
+        return 14;
+      })
       .attr('fill', (d) => CLUSTER_COLORS[d.cluster % 10])
       .attr('opacity', (d) => {
-        // 检查是否被选为帖子
+        const isHighlighted = selectedCluster !== null && d.cluster === selectedCluster;
         const isSelected = selectedPosts?.some((p) => p?.id === d.id);
         if (isSelected) return 0.8;
-        if (selectedCluster === null) return 0.2;
-        return d.cluster === selectedCluster ? 0.4 : 0.1;
+        if (isHighlighted) return 0.5;
+        return 0.1;
       })
       .attr('filter', 'blur(6px)');
 
@@ -243,21 +249,30 @@ export default function NetworkGraph({
     node
       .append('circle')
       .attr('r', (d) => {
+        const isHighlighted = selectedCluster !== null && d.cluster === selectedCluster;
         const isSelected = selectedPosts?.some((p) => p?.id === d.id);
-        return isSelected ? 10 : 5;
+        if (isSelected) return 10;
+        if (isHighlighted) return 7;
+        return 4;
       })
       .attr('fill', (d) => CLUSTER_COLORS[d.cluster % 10])
       .attr('stroke', (d) => {
+        const isHighlighted = selectedCluster !== null && d.cluster === selectedCluster;
         const isSelected = selectedPosts?.some((p) => p?.id === d.id);
-        return isSelected ? '#ffffff' : '#0f0f12';
+        if (isSelected) return '#ffffff';
+        if (isHighlighted) return CLUSTER_COLORS[d.cluster % 10];
+        return '#0f0f12';
       })
       .attr('stroke-width', (d) => {
+        const isHighlighted = selectedCluster !== null && d.cluster === selectedCluster;
         const isSelected = selectedPosts?.some((p) => p?.id === d.id);
-        return isSelected ? 3 : 2;
+        if (isSelected) return 3;
+        if (isHighlighted) return 2;
+        return 1;
       })
       .attr('opacity', (d) => {
         if (selectedCluster === null) return 1;
-        return d.cluster === selectedCluster ? 1 : 0.3;
+        return d.cluster === selectedCluster ? 1 : 0.25;
       });
 
     // 交互事件
@@ -265,21 +280,23 @@ export default function NetworkGraph({
       .on('mouseenter', (event, d) => {
         d3.select(event.currentTarget).raise();
         const isSelected = selectedPosts?.some((p) => p?.id === d.id);
+        const isHighlighted = selectedCluster !== null && d.cluster === selectedCluster;
         d3.select(event.currentTarget)
           .select('circle:nth-child(2)')
           .transition()
           .duration(150)
-          .attr('r', isSelected ? 12 : 8);
+          .attr('r', isSelected ? 12 : isHighlighted ? 10 : 6);
         onSelectNode(d);
       })
       .on('mouseleave', (event) => {
         const d = d3.select(event.currentTarget).datum() as Node;
         const isSelected = selectedPosts?.some((p) => p?.id === d.id);
+        const isHighlighted = selectedCluster !== null && d.cluster === selectedCluster;
         d3.select(event.currentTarget)
           .select('circle:nth-child(2)')
           .transition()
           .duration(150)
-          .attr('r', isSelected ? 10 : 5);
+          .attr('r', isSelected ? 10 : isHighlighted ? 7 : 4);
         onSelectNode(null);
       })
       .on('click', (event, d) => {
