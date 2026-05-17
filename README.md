@@ -1,123 +1,136 @@
-# 小红书收藏夹智能聚类
+# 小红书收藏夹智能聚类 (Xiaohongshu Favorites Intelligent Clustering)
 
-基于 AI 的小红书收藏夹智能聚类全栈工具。用户上传收藏内容后，系统进行语义向量化、K-Means++ 聚类，并通过交互式 D3.js 知识图谱进行可视化。
+[中文版 README](./README-zh.md)
 
-## 功能特性
+This is an AI-powered full-stack tool for intelligent clustering of Xiaohongshu (Little Red Book) favorites. Users upload their saved content, which is then semantically embedded, clustered via K-Means++, and visualized through an interactive D3.js knowledge graph. Additional features include cross-cluster creative brainstorming, post-level insights, and RAG-based Q&A.
 
-- **智能聚类**：语义向量化 + K-Means++ 聚类算法，自动生成分组
-- **知识图谱**：D3.js 力导向图可视化，支持拖拽、缩放、筛选
-- **AI 创意联想**：跨聚类跨界联想，发现收藏间的隐藏关联
-- **智能问答**：基于 RAG 的收藏内容问答，带引用溯源
-- **多格式支持**：CSV / JSON / 文本多种导入方式
+## Features
 
-## 快速开始
+- **Smart Clustering**: Semantic embedding + K-Means++ clustering, auto-generated groups
+- **Knowledge Graph**: D3.js force-directed graph with drag, zoom, and filter support
+- **AI Creative Insights**: Cross-cluster creative associations, discovering hidden connections
+- **Intelligent Q&A**: RAG-based Q&A with source citations
+- **Multi-format Support**: CSV / JSON / plain text import
 
-### 配置环境变量
+## Quick Start
 
-启动前需创建 `.env` 文件，参考 `.env.example`：
+### Configure Environment Variables
+
+Before starting, create a `.env` file based on `.env.example`:
 
 ```bash
 cp .env.example .env
 ```
 
-然后根据实际情况填写必要的环境变量（数据库、对象存储、AI API 等）。
+Fill in the required environment variables (DashScope API key for AI).
 
-### 安装依赖
+### Install Dependencies
 
 ```bash
 pnpm install
 ```
 
-### 启动开发服务器
+> **Note**: pnpm is required. The preinstall script enforces this. Version 9.0+ is recommended.
+
+### Start Development Server
 
 ```bash
 pnpm dev
 ```
 
-在浏览器中打开 [http://localhost:5000](http://localhost:5000)。
+Then open [http://localhost:5000](http://localhost:5000) in your browser.
 
-### 构建生产版本
+### Build for Production
 
 ```bash
 pnpm build
 ```
 
-### 启动生产服务器
+### Start Production Server
 
 ```bash
 pnpm start
 ```
 
-## 技术栈
+## Tech Stack
 
-| 类别 | 技术 |
-|------|------|
-| 框架 | Next.js 16 (App Router) + React 19 |
-| 语言 | TypeScript 5 (严格模式) |
-| UI | shadcn/ui (基于 Radix UI) + Tailwind CSS v4 |
-| 可视化 | D3.js 力导向图 |
-| 向量化 | @xenova/transformers (BGE-small-zh 本地运行) |
-| LLM | OpenAI API (或其他兼容 API) |
-| 数据库 | PostgreSQL + Drizzle ORM |
-| 对象存储 | AWS S3 / S3 兼容存储 |
-| 包管理器 | pnpm 9+ |
+| Category | Technology |
+|----------|------------|
+| Framework | Next.js 16 (App Router) + React 19 |
+| Language | TypeScript 5 (strict mode) |
+| UI | shadcn/ui (Radix UI) + Tailwind CSS v4 |
+| Visualization | D3.js force-directed graph |
+| Embedding | `@xenova/transformers` (BGE-small-zh local) + Coze Embedding (cloud fallback) |
+| LLM | Coze SDK (doubao-seed model) via DashScope API |
+| Package Manager | pnpm 9+ |
 
-## 项目结构
+## Project Structure
 
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # 主单页应用
-│   ├── layout.tsx                  # 根布局
-│   ├── globals.css                 # 全局样式 + shadcn 主题变量
-│   └── api/                        # API 路由
-│       ├── embed/route.ts          # 向量化接口
-│       ├── cluster/route.ts        # K-Means++ 聚类
-│       ├── cluster-name/route.ts   # LLM 生成聚类名称
-│       ├── ai-insight/route.ts     # 跨聚类创意联想
-│       ├── post-insight/route.ts   # 帖子级联想 (SSE)
-│       └── qa/route.ts             # RAG 智能问答
+│   ├── page.tsx                    # Main single-page app
+│   ├── layout.tsx                  # Root layout
+│   ├── globals.css                 # Global styles + shadcn theme variables
+│   └── api/                        # API routes
+│       ├── embed/route.ts          # Semantic embedding (BGE / Coze)
+│       ├── cluster/route.ts        # K-Means++ clustering
+│       ├── cluster-name/route.ts   # LLM-generated cluster names
+│       ├── ai-insight/route.ts     # Cross-cluster creative insights
+│       ├── post-insight/route.ts   # Post-level insights (SSE streaming)
+│       └── qa/route.ts             # RAG-based Q&A
 ├── components/
-│   ├── NetworkGraph.tsx            # D3.js 力导向图
-│   └── ui/                         # shadcn/ui 基础组件
-└── server.ts                       # 自定义 HTTP 服务器入口
+│   ├── NetworkGraph.tsx            # D3.js force-directed graph
+│   └── ui/                         # shadcn/ui base components
+└── server.ts                       # Custom HTTP server entry point
 
-server/                            # 服务端构建输出
-scripts/                           # 构建脚本
+scripts/                            # Build scripts
 ```
 
-## 数据流
+## Data Flow
 
-1. **导入**：用户上传 CSV/JSON/文本 → 解析为条目列表
-2. **向量化**：条目 → `/api/embed` → BGE 语义向量
-3. **聚类**：向量 → `/api/cluster` → K-Means++ 聚类标签 + 二维坐标
-4. **可视化**：结果 → D3 力导向图 + 总览统计
-5. **创意联想**：聚类对 → `/api/ai-insight` → 跨界创意方案
-6. **智能问答**：问题 + 条目 → `/api/qa` → Top-K 检索 → LLM 带引用的回答
+1. **Import**: User uploads CSV/JSON/text → parsed into item list
+2. **Embedding**: Items → `/api/embed` → BGE semantic vectors (falls back to Coze cloud)
+3. **Clustering**: Vectors → `/api/cluster` → K-Means++ cluster labels + 2D coordinates
+4. **Visualization**: Results → D3 force simulation + overview statistics
+5. **Creative Insights**: Cluster pairs → `/api/ai-insight` → cross-domain creative proposals
+6. **Intelligent Q&A**: Question + items → `/api/qa` → Top-K retrieval → LLM response with citations
 
-## API 接口
+## API Endpoints
 
-| 接口 | 方法 | 用途 |
-|------|------|------|
-| `/api/embed` | POST | 文本向量化 (BGE) |
-| `/api/cluster` | POST | K-Means++ 聚类 |
-| `/api/cluster-name` | POST | LLM 生成聚类名称 |
-| `/api/ai-insight` | POST | 跨聚类创意联想 |
-| `/api/post-insight` | POST | 帖子级联想 (SSE 流式) |
-| `/api/qa` | POST | RAG 智能问答 |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/embed` | POST | Text embedding (BGE local → Coze cloud fallback) |
+| `/api/cluster` | POST | K-Means++ clustering with silhouette evaluation |
+| `/api/cluster-name` | POST | LLM-generated cluster names (2-4 Chinese characters) |
+| `/api/ai-insight` | POST | Cross-cluster creative brainstorming |
+| `/api/post-insight` | POST | Post-level insights (SSE streaming) |
+| `/api/qa` | POST | RAG Q&A with source citations |
 
-## 开发规范
+## Development Conventions
 
-- **路径别名**：使用 `@/` 导入 (映射到 `./src/*`)
-- **组件**：优先使用 `src/components/ui/` 中的 shadcn/ui 组件
-- **包管理器**：仅限 pnpm (preinstall 脚本强制执行)
-- **客户端组件**：标记 `'use client'`，动态数据使用 `useEffect` + `useState`
-- **样式**：Tailwind 类名 + `cn()` 工具函数 (`@/lib/utils`) 合并类名
+- **Path Aliases**: Use `@/` for imports (maps to `./src/*`)
+- **Components**: Prefer existing shadcn/ui components in `src/components/ui/`
+- **Package Manager**: pnpm only (enforced by preinstall script)
+- **Client Components**: Mark with `'use client'`; use `useEffect` + `useState` for dynamic data
+- **Styling**: Tailwind classes + `cn()` utility (`@/lib/utils`) for conditional class merging
 
-## 参考文档
+## Environment Variables
 
-- [Next.js 文档](https://nextjs.org/docs)
-- [shadcn/ui 组件](https://ui.shadcn.com)
+| Variable | Description |
+|----------|-------------|
+| `DASHSCOPE_API_KEY` | DashScope API key (get from https://bailian.console.aliyun.com/) |
+| `DASHSCOPE_MODEL` | Model name (default: `qwen-plus-latest`) |
+| `PORT` | Server port (default: `5000`) |
+| `HOSTNAME` | Server hostname (default: `localhost`) |
+| `COZE_PROJECT_ENV` | Coze project environment (`DEV` or `PROD`) |
+
+## Reference
+
+- [Next.js Docs](https://nextjs.org/docs)
+- [shadcn/ui Components](https://ui.shadcn.com)
 - [Tailwind CSS v4](https://tailwindcss.com/docs)
 - [D3.js](https://d3js.org)
 - [Transformers.js](https://xenova.github.io/transformers.js)
+- [Coze SDK](https://www.coze.com/docs)
+- [DashScope](https://bailian.console.aliyun.com/)
